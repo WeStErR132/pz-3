@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))
+        buildDiscarder(logRotator(numToBeep: '10'))
         disableConcurrentBuilds()
         timeout(time: 30, unit: 'MINUTES')
     }
@@ -84,7 +84,6 @@ pipeline {
                     }
                     post {
                         always {
-                            // Генерация XML отчета для Jenkins
                             sh '''
                                 . venv/bin/activate
                                 python -m unittest test_app.py -v 2>&1 | tee test_output.log || true
@@ -119,7 +118,6 @@ pipeline {
                         echo '🏗️ Сборка Docker образа...'
                         script {
                             def customImage = docker.build("${DOCKER_IMAGE}", "--no-cache .")
-                            // Тегируем как latest для удобства
                             sh "docker tag ${DOCKER_IMAGE} ${DOCKER_IMAGE_LATEST}"
                         }
                     }
@@ -129,7 +127,6 @@ pipeline {
                     steps {
                         echo '🔒 Проверка безопасности образа...'
                         sh '''
-                            # Проверка на наличие уязвимостей (если установлен trivy)
                             which trivy && trivy image ${DOCKER_IMAGE} --severity HIGH,CRITICAL --exit-code 0 || echo "Trivy не установлен, пропускаем сканирование"
                         '''
                     }
@@ -201,7 +198,6 @@ pipeline {
             steps {
                 echo '🚀 Развертывание в PRODUCTION...'
                 script {
-                    // Для production используем стандартный порт 80
                     deployApp('80', 'production')
                 }
             }
@@ -262,17 +258,29 @@ pipeline {
 // ==================== ФУНКЦИИ ====================
 
 def deployApp(port, environment) {
-    // Остановка и удаление старого контейнера этого окружения
     sh """
-        # Находим и останавливаем старые контейнеры этого окружения
-        OLD_CONTAINERS=\$(docker ps -q --filter "name=student-app-${environment}" || true)
-        if [ ! -z "\$OLD_CONTAINERS" ]; then
-            echo "Остановка старых контейнеров: \$OLD_CONTAINERS"
-            docker stop \$OLD_CONTAINERS || true
-            docker rm \$OLD_CONTAINERS || true
+        echo "🔍 Поиск контейнеров на порту ${port} и с именем student-app-${environment}..."
+        
+        # === СПОСОБ 1: Остановить ВСЁ что занимает нужный порт ===
+        PORT_CONTAINERS=\$(docker ps -q --filter "publish=${port}" 2>/dev/null || true)
+        if [ ! -z "\$PORT_CONTAINERS" ]; then
+            echo "⚠️ Найдены контейнеры на порту ${port}: \$PORT_CONTAINERS"
+            docker stop \$PORT_CONTAINERS || true
+            docker rm -f \$PORT_CONTAINERS || true
         fi
         
-        # Запуск нового контейнера
+        # === СПОСОБ 2: Остановить все контейнеры этого окружения (включая остановленные) ===
+        ENV_CONTAINERS=\$(docker ps -aq --filter "name=student-app-${environment}" 2>/dev/null || true)
+        if [ ! -z "\$ENV_CONTAINERS" ]; then
+            echo "⚠️ Найдены контейнеры окружения ${environment}: \$ENV_CONTAINERS"
+            docker stop \$ENV_CONTAINERS 2>/dev/null || true
+            docker rm -f \$ENV_CONTAINERS 2>/dev/null || true
+        fi
+        
+        # Небольшая пауза чтобы порт точно освободился
+        sleep 2
+        
+        echo "🚀 Запуск нового контейнера ${CONTAINER_NAME}..."
         docker run -d \
             --name ${CONTAINER_NAME} \
             --restart unless-stopped \
@@ -290,7 +298,7 @@ def deployApp(port, environment) {
         # Ждем запуска
         sleep 5
         
-        # Проверяем health check
+        # Проверяем что контейнер работает
         docker ps | grep ${CONTAINER_NAME}
         curl -f http://localhost:${port}/health || echo "Health check failed!"
     """
