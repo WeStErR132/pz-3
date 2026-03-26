@@ -15,12 +15,12 @@ pipeline {
         booleanParam(name: 'PUSH_TO_REGISTRY', defaultValue: false, description: 'Push в Docker Hub?')
     }
     
-    environment {
+      environment {
         DOCKER_HUB_USER = 'westerr132'
         DOCKER_IMAGE = "${DOCKER_HUB_USER}/student-app:${BUILD_NUMBER}"
         CONTAINER_NAME = "student-app-${params.ENVIRONMENT}-${BUILD_NUMBER}"
-        TELEGRAM_TOKEN = credentials('8775351224:AAHwV0tgc3bj-psNmPRal_6S-IOoqcgJBkA')
-        TELEGRAM_CHAT_ID = credentials('877753874')
+        TELEGRAM_TOKEN = credentials('telegram-token')
+        TELEGRAM_CHAT_ID = credentials('telegram-chat-id')
     }
     
     stages {
