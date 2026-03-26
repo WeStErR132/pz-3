@@ -41,8 +41,8 @@ pipeline {
         DOCKER_IMAGE = "${DOCKER_HUB_USER}/student-app:${BUILD_NUMBER}"
         DOCKER_IMAGE_LATEST = "${DOCKER_HUB_USER}/student-app:latest"
         CONTAINER_NAME = "student-app-${params.ENVIRONMENT}-${BUILD_NUMBER}"
-        TELEGRAM_TOKEN = credentials('telegram-token')
-        TELEGRAM_CHAT_ID = credentials('telegram-chat-id')
+        TELEGRAM_TOKEN = credentials('8775351224:AAHwV0tgc3bj-psNmPRal_6S-IOoqcgJBkA')
+        TELEGRAM_CHAT_ID = credentials('877753874')
     }
     
     stages {
