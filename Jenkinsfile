@@ -256,27 +256,28 @@ pipeline {
 }
 
 // ==================== ФУНКЦИИ ====================
-
 def deployApp(port, environment) {
     // Остановка и удаление старого контейнера этого окружения
-    sh """
+    sh '''
         # Находим и останавливаем старые контейнеры этого окружения
-        OLD_CONTAINERS=\\$(docker ps -aq --filter "name=student-app-${environment}" || true)
-        if [ ! -z "\\$OLD_CONTAINERS" ]; then
-            echo "Остановка старых контейнеров: \\$OLD_CONTAINERS"
-            docker stop \\$OLD_CONTAINERS || true
-            docker rm \\$OLD_CONTAINERS || true
+        OLD_CONTAINERS=$(docker ps -aq --filter "name=student-app-''' + environment + '''" || true)
+        if [ ! -z "$OLD_CONTAINERS" ]; then
+            echo "Остановка старых контейнеров: $OLD_CONTAINERS"
+            docker stop $OLD_CONTAINERS || true
+            docker rm $OLD_CONTAINERS || true
         fi
-        
+    '''
+    
+    sh """
         # Запуск нового контейнера
-        docker run -d \
-            --name ${CONTAINER_NAME} \
-            --restart unless-stopped \
-            -p ${port}:5000 \
-            -e STUDENT_NAME='${params.STUDENT_NAME}' \
-            -e ENVIRONMENT='${environment}' \
-            -e BUILD_NUMBER='${BUILD_NUMBER}' \
-            -e PORT=5000 \
+        docker run -d \\
+            --name ${CONTAINER_NAME} \\
+            --restart unless-stopped \\
+            -p ${port}:5000 \\
+            -e STUDENT_NAME='${params.STUDENT_NAME}' \\
+            -e ENVIRONMENT='${environment}' \\
+            -e BUILD_NUMBER='${BUILD_NUMBER}' \\
+            -e PORT=5000 \\
             ${DOCKER_IMAGE}
         
         # Ждем запуска
@@ -287,7 +288,7 @@ def deployApp(port, environment) {
         curl -f http://localhost:${port}/health || echo "Health check failed!"
     """
     
-    def serverIp = sh(script: "hostname -I | awk '{print \\$1}'", returnStdout: true).trim()
+    def serverIp = sh(script: "hostname -I | awk '{print \$1}'", returnStdout: true).trim()
     
     echo """
     =========================================
@@ -302,6 +303,7 @@ def deployApp(port, environment) {
     =========================================
     """
 }
+
 
 def sendTelegramNotification(emoji, status, environment) {
     def message = "${emoji} <b>Jenkins Build ${status}</b>%0A%0A📋 Проект: ${env.JOB_NAME}%0A🔢 Сборка: #${env.BUILD_NUMBER}%0A🌍 Окружение: <code>${environment}</code>%0A👤 Студент: ${params.STUDENT_NAME}%0A%0A⏱️ Длительность: ${currentBuild.durationString}%0A%0A🔗 <a href='${env.BUILD_URL}'>Открыть в Jenkins</a>"
