@@ -29,16 +29,17 @@ pipeline {
             description: 'Запускать ли тесты?'
         )
         booleanParam(
-            name: 'SKIP_PUSH',
+            name: 'PUSH_TO_REGISTRY',
             defaultValue: false,
-            description: 'Пропустить публикацию в Docker Hub (для тестов)'
+            description: 'Публиковать образ в Docker Hub? (требуются credentials)'
         )
     }
     
     environment {
         DOCKER_REGISTRY = 'docker.io'
-        DOCKER_IMAGE = "yourdockerhub/student-app:${BUILD_NUMBER}"
-        DOCKER_IMAGE_LATEST = "yourdockerhub/student-app:latest"
+        DOCKER_HUB_USER = 'westerr132'
+        DOCKER_IMAGE = "${DOCKER_HUB_USER}/student-app:${BUILD_NUMBER}"
+        DOCKER_IMAGE_LATEST = "${DOCKER_HUB_USER}/student-app:latest"
         CONTAINER_NAME = "student-app-${params.ENVIRONMENT}-${BUILD_NUMBER}"
         TELEGRAM_TOKEN = credentials('telegram-token')
         TELEGRAM_CHAT_ID = credentials('telegram-chat-id')
@@ -84,7 +85,6 @@ pipeline {
                     }
                     post {
                         always {
-                            // Генерация XML отчета для Jenkins
                             sh '''
                                 . venv/bin/activate
                                 python -m unittest test_app.py -v 2>&1 | tee test_output.log || true
@@ -118,8 +118,7 @@ pipeline {
                     steps {
                         echo '🏗️ Сборка Docker образа...'
                         script {
-                            def customImage = docker.build("${DOCKER_IMAGE}", "--no-cache .")
-                            // Тегируем как latest для удобства
+                            docker.build("${DOCKER_IMAGE}", "--no-cache .")
                             sh "docker tag ${DOCKER_IMAGE} ${DOCKER_IMAGE_LATEST}"
                         }
                     }
@@ -129,7 +128,6 @@ pipeline {
                     steps {
                         echo '🔒 Проверка безопасности образа...'
                         sh '''
-                            # Проверка на наличие уязвимостей (если установлен trivy)
                             which trivy && trivy image ${DOCKER_IMAGE} --severity HIGH,CRITICAL --exit-code 0 || echo "Trivy не установлен, пропускаем сканирование"
                         '''
                     }
@@ -137,10 +135,7 @@ pipeline {
                 
                 stage('Push to Registry') {
                     when {
-                        allOf {
-                            branch 'main'
-                            expression { !params.SKIP_PUSH }
-                        }
+                        expression { params.PUSH_TO_REGISTRY }
                     }
                     steps {
                         echo '📤 Публикация образа в Docker Hub...'
@@ -201,8 +196,9 @@ pipeline {
             steps {
                 echo '🚀 Развертывание в PRODUCTION...'
                 script {
-                    // Для production используем стандартный порт 80
-                    deployApp('80', 'production')
+                    // Для production используем порт 80 или указанный
+                    def prodPort = params.PORT == '8081' ? '80' : params.PORT
+                    deployApp(prodPort, 'production')
                 }
             }
         }
@@ -265,11 +261,11 @@ def deployApp(port, environment) {
     // Остановка и удаление старого контейнера этого окружения
     sh """
         # Находим и останавливаем старые контейнеры этого окружения
-        OLD_CONTAINERS=\$(docker ps -q --filter "name=student-app-${environment}" || true)
-        if [ ! -z "\$OLD_CONTAINERS" ]; then
-            echo "Остановка старых контейнеров: \$OLD_CONTAINERS"
-            docker stop \$OLD_CONTAINERS || true
-            docker rm \$OLD_CONTAINERS || true
+        OLD_CONTAINERS=\\$(docker ps -aq --filter "name=student-app-${environment}" || true)
+        if [ ! -z "\\$OLD_CONTAINERS" ]; then
+            echo "Остановка старых контейнеров: \\$OLD_CONTAINERS"
+            docker stop \\$OLD_CONTAINERS || true
+            docker rm \\$OLD_CONTAINERS || true
         fi
         
         # Запуск нового контейнера
@@ -281,10 +277,6 @@ def deployApp(port, environment) {
             -e ENVIRONMENT='${environment}' \
             -e BUILD_NUMBER='${BUILD_NUMBER}' \
             -e PORT=5000 \
-            --health-cmd="curl -f http://localhost:5000/health || exit 1" \
-            --health-interval=30s \
-            --health-timeout=10s \
-            --health-retries=3 \
             ${DOCKER_IMAGE}
         
         # Ждем запуска
@@ -295,7 +287,7 @@ def deployApp(port, environment) {
         curl -f http://localhost:${port}/health || echo "Health check failed!"
     """
     
-    def serverIp = sh(script: "hostname -I | awk '{print \$1}'", returnStdout: true).trim()
+    def serverIp = sh(script: "hostname -I | awk '{print \\$1}'", returnStdout: true).trim()
     
     echo """
     =========================================
@@ -312,25 +304,14 @@ def deployApp(port, environment) {
 }
 
 def sendTelegramNotification(emoji, status, environment) {
-    def message = """
-    ${emoji} <b>Jenkins Build ${status}</b>
-    
-    📋 Проект: ${env.JOB_NAME}
-    🔢 Сборка: #${env.BUILD_NUMBER}
-    🌍 Окружение: <code>${environment}</code>
-    👤 Студент: ${params.STUDENT_NAME}
-    
-    ⏱️ Длительность: ${currentBuild.durationString}
-    
-    🔗 <a href="${env.BUILD_URL}">Открыть в Jenkins</a>
-    """
+    def message = "${emoji} <b>Jenkins Build ${status}</b>%0A%0A📋 Проект: ${env.JOB_NAME}%0A🔢 Сборка: #${env.BUILD_NUMBER}%0A🌍 Окружение: <code>${environment}</code>%0A👤 Студент: ${params.STUDENT_NAME}%0A%0A⏱️ Длительность: ${currentBuild.durationString}%0A%0A🔗 <a href='${env.BUILD_URL}'>Открыть в Jenkins</a>"
     
     sh """
         curl -s -X POST \
-            https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage \
-            -d chat_id=${TELEGRAM_CHAT_ID} \
-            -d text='${message}' \
-            -d parse_mode='HTML' \
-            -d disable_web_page_preview='true'
+            'https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage' \
+            -d 'chat_id=${TELEGRAM_CHAT_ID}' \
+            -d 'text=${message}' \
+            -d 'parse_mode=HTML' \
+            -d 'disable_web_page_preview=true'
     """
 }
