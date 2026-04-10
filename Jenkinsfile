@@ -311,7 +311,6 @@ def deployApp(port, environment) {
     """
 }
 
-
 def sendTelegramNotification(emoji, status, environment) {
     def message = """
     ${emoji} <b>Jenkins Build ${status}</b>
